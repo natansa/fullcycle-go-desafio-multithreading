@@ -1,9 +1,8 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -12,9 +11,9 @@ import (
 
 func main() {
 	http.HandleFunc("/", handler)
-
 	r := chi.NewRouter()
 	r.Get("/{cep}", handler)
+	http.ListenAndServe(":8080", r)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -25,24 +24,65 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxHttp, cancelHttp := context.WithTimeout(r.Context(), 200*time.Millisecond)
-	defer cancelHttp()
+	apicep := make(chan string)
+	viacep := make(chan string)
 
-	cepRequest, err := http.NewRequestWithContext(ctxHttp, "GET", "https://economia.awesomeapi.com.br/json/last/USD-BRL", nil)
-	if err != nil {
-		log.Println(err)
+	go func() {
+		getApicep(apicep, cep)
+	}()
+
+	go func() {
+		getViacep(viacep, cep)
+	}()
+
+	select {
+	case cepResult := <-viacep:
+		fmt.Printf("Resultado da VIACEP: %s\n", cepResult)
+
+	case cepResult := <-apicep:
+		fmt.Printf("Resultado da APICEP: %s\n", cepResult)
+
+	case <-time.After(1 * time.Second):
+		fmt.Println("Timeout")
 	}
 
-	cepResponse, err := http.DefaultClient.Do(cepRequest)
-	if err != nil {
-		log.Println(err)
-	}
-	defer cepResponse.Body.Close()
+	w.WriteHeader(http.StatusOK)
+}
 
-	cepResult, err := io.ReadAll(cepResponse.Body)
+func getApicep(apicep chan string, cep string) {
+	apicepResponse, err := http.Get("https://cdn.apicep.com/file/apicep/" + cep + ".json")
 	if err != nil {
-		log.Println(err)
+		return
+	}
+	defer apicepResponse.Body.Close()
+
+	apicepResult, err := io.ReadAll(apicepResponse.Body)
+	if err != nil {
+		return
 	}
 
-	w.Write([]byte(cepResult))
+	if apicepResponse.StatusCode >= 400 {
+		return
+	}
+
+	apicep <- string(apicepResult)
+}
+
+func getViacep(viacep chan string, cep string) {
+	viacepResponse, err := http.Get("https://viacep.com.br/ws/" + cep + "/json/")
+	if err != nil {
+		return
+	}
+	defer viacepResponse.Body.Close()
+
+	viacepResult, err := io.ReadAll(viacepResponse.Body)
+	if err != nil {
+		return
+	}
+
+	if viacepResponse.StatusCode >= 400 {
+		return
+	}
+
+	viacep <- string(viacepResult)
 }
