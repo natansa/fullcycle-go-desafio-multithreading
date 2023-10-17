@@ -43,7 +43,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Resultado da APICEP: %s\n", cepResult)
 
 	case <-time.After(1 * time.Second):
-		fmt.Println("Timeout")
+		fmt.Println("TIMEOUT")
 	}
 
 	w.WriteHeader(http.StatusOK)
